@@ -1,0 +1,41 @@
+# docker-compose.yml : describes the 3 "tiers" of the shop and how they connect.
+# The service names (frontend, backend, db) are the SAME names we will use as
+# Kubernetes Services later, so nothing needs renaming when we move to the cluster.
+services:
+
+  frontend:                      # nginx: serves HTML/CSS/JS and forwards /api/* to backend
+    build: ./frontend
+    ports:
+      - "8080:80"                # your-computer-port:container-port -> open http://localhost:8080
+    depends_on:
+      - backend
+
+  backend:                       # PHP + Apache: the "brain" (API)
+    build: ./backend
+    environment:                 # settings are passed in, never written inside the code
+      DB_HOST: db                # "db" = the service name below. Docker gives it DNS.
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy   # wait until MySQL is really ready
+
+  db:                            # MySQL: the data
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql                       # the disk that survives restarts
+      - ./db/init:/docker-entrypoint-initdb.d:ro     # *.sql files here run on FIRST start only
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:
